@@ -7,21 +7,9 @@ const finalScoreElement = document.getElementById('finalScore');
 const gameOverDiv = document.getElementById('gameOver');
 const restartBtn = document.getElementById('restartBtn');
 
-// Set canvas size based on screen size
-function resizeCanvas() {
-    const maxWidth = Math.min(window.innerWidth - 40, 500);
-    const maxHeight = Math.min(window.innerHeight - 400, 500);
-    const size = Math.min(maxWidth, maxHeight);
-    canvas.width = size;
-    canvas.height = size;
-}
-
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
-
 // Game variables
 const gridSize = 20;
-const tileCount = canvas.width / gridSize;
+let tileCount = 0;
 
 let snake = [
     { x: 10, y: 10 }
@@ -33,6 +21,34 @@ let score = 0;
 let highScore = localStorage.getItem('snakeHighScore') || 0;
 let gameRunning = false;
 let gameLoop = null;
+
+// Set canvas size based on screen size
+function resizeCanvas() {
+    const maxWidth = Math.min(window.innerWidth - 40, 500);
+    const maxHeight = Math.min(window.innerHeight - 400, 500);
+    const size = Math.min(maxWidth, maxHeight);
+    canvas.width = size;
+    canvas.height = size;
+    
+    // Recalculate tileCount after resize
+    tileCount = Math.floor(canvas.width / gridSize);
+    
+    // Ensure snake position is valid
+    if (snake[0].x >= tileCount) {
+        snake[0].x = Math.floor(tileCount / 2);
+    }
+    if (snake[0].y >= tileCount) {
+        snake[0].y = Math.floor(tileCount / 2);
+    }
+    
+    // Redraw if food exists
+    if (food.x !== undefined) {
+        drawGame();
+    }
+}
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 
 // Initialize high score display
 highScoreElement.textContent = highScore;
@@ -83,6 +99,11 @@ function drawFood() {
 
 // Game logic
 function moveSnake() {
+    // Don't move if no direction is set
+    if (dx === 0 && dy === 0) {
+        return;
+    }
+    
     const head = { x: snake[0].x + dx, y: snake[0].y + dy };
     
     // Check wall collision
@@ -91,9 +112,9 @@ function moveSnake() {
         return;
     }
     
-    // Check self collision
-    for (let segment of snake) {
-        if (head.x === segment.x && head.y === segment.y) {
+    // Check self collision (skip first segment as it's the current head)
+    for (let i = 1; i < snake.length; i++) {
+        if (head.x === snake[i].x && head.y === snake[i].y) {
             gameOver();
             return;
         }
@@ -126,7 +147,7 @@ function gameOver() {
 }
 
 function resetGame() {
-    snake = [{ x: 10, y: 10 }];
+    snake = [{ x: Math.floor(tileCount / 2), y: Math.floor(tileCount / 2) }];
     dx = 0;
     dy = 0;
     score = 0;
@@ -134,6 +155,9 @@ function resetGame() {
     gameOverDiv.classList.add('hidden');
     generateFood();
     gameRunning = true;
+    if (gameLoop) {
+        clearInterval(gameLoop);
+    }
     gameLoop = setInterval(update, 100);
 }
 
@@ -195,17 +219,24 @@ document.getElementById('btnRight').addEventListener('click', () => changeDirect
 // Touch/Swipe controls for mobile
 let touchStartX = null;
 let touchStartY = null;
+let touchStartTime = null;
 
 canvas.addEventListener('touchstart', (e) => {
     e.preventDefault();
     const touch = e.touches[0];
     touchStartX = touch.clientX;
     touchStartY = touch.clientY;
+    touchStartTime = Date.now();
 }, { passive: false });
 
 canvas.addEventListener('touchend', (e) => {
     e.preventDefault();
-    if (touchStartX === null || touchStartY === null) return;
+    if (touchStartX === null || touchStartY === null || touchStartTime === null) {
+        touchStartX = null;
+        touchStartY = null;
+        touchStartTime = null;
+        return;
+    }
     
     const touch = e.changedTouches[0];
     const touchEndX = touch.clientX;
@@ -213,21 +244,23 @@ canvas.addEventListener('touchend', (e) => {
     
     const deltaX = touchEndX - touchStartX;
     const deltaY = touchEndY - touchStartY;
+    const deltaTime = Date.now() - touchStartTime;
     
+    // Require minimum swipe distance and reasonable time
     const minSwipeDistance = 30;
+    const maxSwipeTime = 500; // milliseconds
     
-    if (Math.abs(deltaX) > Math.abs(deltaY)) {
-        // Horizontal swipe
-        if (Math.abs(deltaX) > minSwipeDistance) {
+    // Only process if swipe is fast enough and far enough
+    if (deltaTime < maxSwipeTime && (Math.abs(deltaX) > minSwipeDistance || Math.abs(deltaY) > minSwipeDistance)) {
+        if (Math.abs(deltaX) > Math.abs(deltaY)) {
+            // Horizontal swipe
             if (deltaX > 0) {
                 changeDirection(1, 0); // Right
             } else {
                 changeDirection(-1, 0); // Left
             }
-        }
-    } else {
-        // Vertical swipe
-        if (Math.abs(deltaY) > minSwipeDistance) {
+        } else {
+            // Vertical swipe
             if (deltaY > 0) {
                 changeDirection(0, 1); // Down
             } else {
@@ -238,6 +271,7 @@ canvas.addEventListener('touchend', (e) => {
     
     touchStartX = null;
     touchStartY = null;
+    touchStartTime = null;
 }, { passive: false });
 
 // Prevent scrolling on touch
@@ -256,12 +290,24 @@ canvas.addEventListener('contextmenu', (e) => {
 });
 
 // Initialize game
-generateFood();
-drawGame();
-
-// Start game on first move
-canvas.addEventListener('click', () => {
-    if (!gameRunning && dx === 0 && dy === 0) {
-        // Don't start automatically, wait for first direction input
+function initGame() {
+    // Reset game state
+    snake = [{ x: Math.floor(tileCount / 2), y: Math.floor(tileCount / 2) }];
+    dx = 0;
+    dy = 0;
+    score = 0;
+    scoreElement.textContent = score;
+    gameRunning = false;
+    if (gameLoop) {
+        clearInterval(gameLoop);
+        gameLoop = null;
     }
-});
+    gameOverDiv.classList.add('hidden');
+    
+    // Generate food and draw
+    generateFood();
+    drawGame();
+}
+
+// Initialize when page loads
+initGame();
