@@ -158,7 +158,7 @@ function resetGame() {
     if (gameLoop) {
         clearInterval(gameLoop);
     }
-    gameLoop = setInterval(update, 100);
+    gameLoop = setInterval(update, 160);
 }
 
 function update() {
